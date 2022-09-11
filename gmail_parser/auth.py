@@ -2,8 +2,8 @@ import os
 import json
 import httplib2
 from gmail_parser.defaults import GmailParserDefaults as GPD
-from pydrive.auth import GoogleAuth
-from pydrive.drive import GoogleDrive
+from pydrive2.auth import GoogleAuth
+from pydrive2.drive import GoogleDrive
 import oauth2client
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import Flow
