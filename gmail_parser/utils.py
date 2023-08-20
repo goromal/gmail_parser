@@ -1,7 +1,6 @@
 from datetime import datetime
 import base64
 import re
-from googleapiclient.http import HttpError
 import html2text
 
 HTMLHANDLER = html2text.HTML2Text()
@@ -11,8 +10,8 @@ def callAPI(api_call):
     response = dict()
     try:
         response = api_call.execute()
-    except HttpError as e:
-        print('Error response status code : {0}, reason : {1}'.format(e.resp.status, e.error_details))
+    except Exception as e:
+        print(e)
     return response
 
 class GMailMessage(object):

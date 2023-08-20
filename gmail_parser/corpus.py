@@ -5,33 +5,28 @@ import time
 from datetime import datetime
 import progressbar
 
-from gmail_parser.auth import getSecretsFromDrive, getGmailService
+from easy_google_auth.auth import getGoogleService
+
 from gmail_parser.utils import callAPI, GMailMessage
 from gmail_parser.defaults import GmailParserDefaults as GPD
 
 class GMailCorpus(object):
     def __init__(self, email_address, messages=None, **kwargs):
-        self.drive_secrets_file = GPD.getKwargsOrDefault("drive_secrets_file", **kwargs)
-        self.gmail_secrets_path = GPD.getKwargsOrDefault("gmail_secrets_path", **kwargs)
-        self.gmail_secrets_hash = GPD.getKwargsOrDefault("gmail_secrets_hash", **kwargs)
         self.gmail_secrets_json = GPD.getKwargsOrDefault("gmail_secrets_json", **kwargs)
         self.gmail_refresh_file = GPD.getKwargsOrDefault("gmail_refresh_file", **kwargs)
+        self.gmail_scope = GPD.getKwargsOrDefault("gmail_corpus_scope", **kwargs)
         self.enable_logging = GPD.getKwargsOrDefault("enable_logging", **kwargs)
 
         if self.enable_logging:
             logging.basicConfig(filename='LOG-google_tools_GMAIL_%s.log' % time.strftime('%Y%m%d-%H%M%S'), level=logging.INFO)
             logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
-        if not os.path.exists(self.gmail_secrets_json) or not os.path.exists(self.gmail_refresh_file):
-            getSecretsFromDrive(
-                drive_secrets_file = self.drive_secrets_file,
-                gmail_secrets_path = self.gmail_secrets_path,
-                gmail_secrets_hash = self.gmail_secrets_hash
-            )
-
-        self.service = getGmailService(
-            gmail_secrets_json = self.gmail_secrets_json,
-            gmail_refresh_file = self.gmail_refresh_file
+        self.service = getGoogleService(
+            "gmail",
+            "v1",
+            self.gmail_secrets_json,
+            self.gmail_refresh_file,
+            self.gmail_scope
         )
         
         self.userID = email_address
@@ -50,9 +45,6 @@ class GMailCorpus(object):
     def _scoped_copy(self, messages):
         return GMailCorpus(self.userID,
                            messages,
-                           drive_secrets_file=self.drive_secrets_file,
-                           gmail_secrets_path=self.gmail_secrets_path,
-                           gmail_secrets_hash=self.gmail_secrets_hash,
                            gmail_secrets_json=self.gmail_secrets_json,
                            gmail_refresh_file=self.gmail_refresh_file,
                            enable_logging=self.enable_logging
