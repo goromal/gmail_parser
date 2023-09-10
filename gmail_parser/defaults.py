@@ -27,6 +27,8 @@ class GmailParserDefaults:
         argname_mapping = {
             "gmail_secrets_json": GmailParserDefaults.GMAIL_SECRETS_JSON,
             "gmail_refresh_file": GmailParserDefaults.GMAIL_REFRESH_FILE,
+            "gbot_refresh_file": GmailParserDefaults.GBOT_REFRESH_FILE,
+            "journal_refresh_file": GmailParserDefaults.JOURNAL_REFRESH_FILE,
             "gmail_corpus_scope": GmailParserDefaults.GMAIL_CORPUS_SCOPE,
             "enable_logging": GmailParserDefaults.ENABLE_LOGGING,
         }

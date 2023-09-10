@@ -41,7 +41,9 @@ class GMailMessage(object):
         if 'labelIds' in json_object:
             self.labels = json_object['labelIds']
         for json_object in json_objects:
-            if 'body' in json_object['payload'] and 'data' in json_object['payload']['body']:
+            if "text_attachment_data" in json_object:
+                self.content += self._gmail_decode_string(json_object["text_attachment_data"])
+            elif 'body' in json_object['payload'] and 'data' in json_object['payload']['body']:
                 self.content += self._gmail_decode_string(json_object['payload']['body']['data'])
             elif 'parts' in json_object['payload']:
                 for part in json_object['payload']['parts']:
