@@ -1,1 +1,4 @@
 *.pyc
+*.nix
+nixcopy/*
+venv/*

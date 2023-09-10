@@ -3,6 +3,8 @@ import os
 class GmailParserDefaults:
     GMAIL_SECRETS_JSON = os.path.expanduser("~/secrets/gmail/secrets.json")
     GMAIL_REFRESH_FILE = os.path.expanduser("~/secrets/gmail/refresh.json")
+    GBOT_REFRESH_FILE = os.path.expanduser("~/secrets/gmail/bot_refresh.json")
+    JOURNAL_REFRESH_FILE = os.path.expanduser("~/secrets/gmail/journal_refresh.json")
     GMAIL_CORPUS_SCOPE = [
         'openid',
         'https://www.googleapis.com/auth/userinfo.email',
