@@ -218,7 +218,6 @@ class GBotCorpus(GMailCorpus):
                         messageId = json_object["id"]
                         attachmentId = json_object["payload"]["parts"][0]["body"]["attachmentId"]
                         dataMsg = callAPI(self.service.users().messages().attachments().get(userId=self.userID,messageId=messageId,id=attachmentId))
-                        print("ADDING")
                         json_object["text_attachment_data"] = dataMsg["data"]
                 self.messages.append(GMailMessage(thread_msgs_json, self))
         self._log('%d total INBOX messages.' % len(self.messages))
@@ -252,7 +251,6 @@ class JournalCorpus(GMailCorpus):
                         messageId = json_object["id"]
                         attachmentId = json_object["payload"]["parts"][0]["body"]["attachmentId"]
                         dataMsg = callAPI(self.service.users().messages().attachments().get(userId=self.userID,messageId=messageId,id=attachmentId))
-                        print("ADDING")
                         json_object["text_attachment_data"] = dataMsg["data"]
                 self.messages.append(GMailMessage(thread_msgs_json, self))
         self._log('%d total INBOX messages.' % len(self.messages))
