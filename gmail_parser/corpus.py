@@ -32,7 +32,7 @@ class GMailCorpus(object):
         self.userID = email_address
         
         if messages is None:
-            self.messages = list()
+            self.messages = []
         else:
             self.messages = messages
 
@@ -194,3 +194,69 @@ class GMailCorpus(object):
             else:
                 senders[sender] = 1
         return dict(sorted(senders.items(), key=lambda item: -item[1]))
+
+class GBotCorpus(GMailCorpus):
+    def __init__(self, email_address, messages=None, **kwargs):
+        super(GBotCorpus, self).__init__(
+            email_address,
+            messages=messages,
+            gmail_refresh_file=GPD.getKwargsOrDefault("gbot_refresh_file", **kwargs),
+            **kwargs
+        )
+
+    def Inbox(self, limit=50000):
+        self._log("Constructing GBot Inbox.")
+        self.messages.clear()
+        all_mail = self._get_all_mail(limit)
+        for i in progressbar.progressbar(range(len(all_mail))):
+            json_message = all_mail[i]
+            thread_json_message = callAPI(self.service.users().threads().get(userId=self.userID,id=json_message['threadId']))
+            thread_msgs_json = thread_json_message['messages']
+            if 'labelIds' in thread_msgs_json[0] and 'INBOX' in thread_msgs_json[0]['labelIds']:
+                for json_object in thread_msgs_json:
+                    if "parts" in json_object["payload"] and "filename" in json_object["payload"]["parts"][0] and json_object["payload"]["parts"][0]["filename"] == "text_0.txt":
+                        messageId = json_object["id"]
+                        attachmentId = json_object["payload"]["parts"][0]["body"]["attachmentId"]
+                        dataMsg = callAPI(self.service.users().messages().attachments().get(userId=self.userID,messageId=messageId,id=attachmentId))
+                        json_object["text_attachment_data"] = dataMsg["data"]
+                self.messages.append(GMailMessage(thread_msgs_json, self))
+        self._log('%d total INBOX messages.' % len(self.messages))
+        self._log('%d -> %d messages.' % (len(all_mail), len(self.messages)))
+        return self
+
+    def Outbox(self, limit=50000):
+        self._log("Outbox not supported for GBot.")
+        return self
+
+class JournalCorpus(GMailCorpus):
+    def __init__(self, email_address, messages=None, **kwargs):
+        super(JournalCorpus, self).__init__(
+            email_address,
+            messages=messages,
+            gmail_refresh_file=GPD.getKwargsOrDefault("journal_refresh_file", **kwargs),
+            **kwargs
+        )
+
+    def Inbox(self, limit=50000):
+        self._log("Constructing Journal Inbox.")
+        self.messages.clear()
+        all_mail = self._get_all_mail(limit)
+        for i in progressbar.progressbar(range(len(all_mail))):
+            json_message = all_mail[i]
+            thread_json_message = callAPI(self.service.users().threads().get(userId=self.userID,id=json_message['threadId']))
+            thread_msgs_json = thread_json_message['messages']
+            if 'labelIds' in thread_msgs_json[0] and 'INBOX' in thread_msgs_json[0]['labelIds']:
+                for json_object in thread_msgs_json:
+                    if "parts" in json_object["payload"] and "filename" in json_object["payload"]["parts"][0] and json_object["payload"]["parts"][0]["filename"] == "text_0.txt":
+                        messageId = json_object["id"]
+                        attachmentId = json_object["payload"]["parts"][0]["body"]["attachmentId"]
+                        dataMsg = callAPI(self.service.users().messages().attachments().get(userId=self.userID,messageId=messageId,id=attachmentId))
+                        json_object["text_attachment_data"] = dataMsg["data"]
+                self.messages.append(GMailMessage(thread_msgs_json, self))
+        self._log('%d total INBOX messages.' % len(self.messages))
+        self._log('%d -> %d messages.' % (len(all_mail), len(self.messages)))
+        return self
+
+    def Outbox(self, limit=50000):
+        self._log("Outbox not supported for Journal.")
+        return self
