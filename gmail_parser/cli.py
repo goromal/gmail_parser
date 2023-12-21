@@ -31,7 +31,11 @@ from gmail_parser.corpus import GMailCorpus
 )
 def cli(ctx: click.Context, gmail_secrets_json, gmail_refresh_file, enable_logging):
     """Manage GMail."""
-    ctx.obj = GMailCorpus("andrew.torgesen@gmail.com", gmail_secrets_json=gmail_secrets_json, gmail_refresh_file=gmail_refresh_file, enable_logging=enable_logging)
+    try:
+        ctx.obj = GMailCorpus("andrew.torgesen@gmail.com", gmail_secrets_json=gmail_secrets_json, gmail_refresh_file=gmail_refresh_file, enable_logging=enable_logging, headless=True)
+    except Exception as e:
+        print(f"Program error: {e}")
+        exit(1)
 
 @cli.command()
 @click.pass_context
