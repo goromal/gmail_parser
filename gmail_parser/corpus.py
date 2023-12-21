@@ -16,6 +16,7 @@ class GMailCorpus(object):
         self.gmail_refresh_file = GPD.getKwargsOrDefault("gmail_refresh_file", **kwargs)
         self.gmail_scope = GPD.getKwargsOrDefault("gmail_corpus_scope", **kwargs)
         self.enable_logging = GPD.getKwargsOrDefault("enable_logging", **kwargs)
+        headless = kwargs["headless"] if "headless" in kwargs else False
 
         if self.enable_logging:
             logging.basicConfig(filename='LOG-google_tools_GMAIL_%s.log' % time.strftime('%Y%m%d-%H%M%S'), level=logging.INFO)
@@ -26,8 +27,11 @@ class GMailCorpus(object):
             "v1",
             self.gmail_secrets_json,
             self.gmail_refresh_file,
-            self.gmail_scope
+            self.gmail_scope,
+            headless=headless
         )
+        if self.service is None:
+            raise Exception(f"Expired credentials at {self.gmail_refresh_file}")
         
         self.userID = email_address
         
@@ -201,6 +205,7 @@ class GBotCorpus(GMailCorpus):
             email_address,
             messages=messages,
             gmail_refresh_file=GPD.getKwargsOrDefault("gbot_refresh_file", **kwargs),
+            headless=True,
             **kwargs
         )
 
@@ -234,6 +239,7 @@ class JournalCorpus(GMailCorpus):
             email_address,
             messages=messages,
             gmail_refresh_file=GPD.getKwargsOrDefault("journal_refresh_file", **kwargs),
+            headless=True,
             **kwargs
         )
 
