@@ -64,6 +64,7 @@ def clean(ctx: click.Context, num_messages):
     inbox.clean()
 
 @cli.command()
+@click.pass_context
 @click.argument("recipient")
 @click.argument("subject")
 @click.argument("body")
@@ -72,6 +73,7 @@ def send(ctx: click.Context, recipient, subject, body):
     ctx.obj["gmail"].send(to=recipient, subject=subject, message=body)
 
 @cli.command()
+@click.pass_context
 @click.argument("recipient")
 @click.argument("subject")
 @click.argument("body")
