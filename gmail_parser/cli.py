@@ -1,4 +1,5 @@
 import click
+import sys
 
 from gmail_parser.defaults import GmailParserDefaults as GPD
 from gmail_parser.corpus import GMailCorpus
@@ -45,7 +46,7 @@ def cli(ctx: click.Context, gmail_secrets_json, gmail_refresh_file, gbot_refresh
             "gbot": GMailCorpus("goromal.bot@gmail.com", gmail_secrets_json=gmail_secrets_json, gmail_refresh_file=gbot_refresh_file, enable_logging=enable_logging, headless=True)
         }
     except Exception as e:
-        print(f"Program error: {e}")
+        sys.stderr.write(f"Program error: {e}")
         exit(1)
 
 @cli.command()
