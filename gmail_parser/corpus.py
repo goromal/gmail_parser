@@ -4,6 +4,8 @@ import logging
 import time
 from datetime import datetime
 import progressbar
+import base64
+from email.mime.text import MIMEText
 
 from easy_google_auth.auth import getGoogleService
 
@@ -39,6 +41,13 @@ class GMailCorpus(object):
             self.messages = []
         else:
             self.messages = messages
+
+    def send(self, to, subject, message):
+        msg = MIMEText(message)
+        msg["to"] = to
+        msg["subject"] = subject
+        msg_obj = {"raw": base64.urlsafe_b64encode(msg.as_bytes()).decode()}
+        callAPI(self.service.users().messages().send(userId=self.userID, body=msg_obj))
 
     def __enter__(self):
         return self

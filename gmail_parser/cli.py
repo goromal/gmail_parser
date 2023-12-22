@@ -1,4 +1,5 @@
 import click
+import sys
 
 from gmail_parser.defaults import GmailParserDefaults as GPD
 from gmail_parser.corpus import GMailCorpus
@@ -22,6 +23,14 @@ from gmail_parser.corpus import GMailCorpus
     help="GMail refresh file (if it exists).",
 )
 @click.option(
+    "--gbot-refresh-file",
+    "gbot_refresh_file",
+    type=click.Path(),
+    default=GPD.GBOT_REFRESH_FILE,
+    show_default=True,
+    help="GBot refresh file (if it exists).",
+)
+@click.option(
     "--enable-logging",
     "enable_logging",
     type=bool,
@@ -29,12 +38,15 @@ from gmail_parser.corpus import GMailCorpus
     show_default=True,
     help="Whether to enable logging.",
 )
-def cli(ctx: click.Context, gmail_secrets_json, gmail_refresh_file, enable_logging):
+def cli(ctx: click.Context, gmail_secrets_json, gmail_refresh_file, gbot_refresh_file, enable_logging):
     """Manage GMail."""
     try:
-        ctx.obj = GMailCorpus("andrew.torgesen@gmail.com", gmail_secrets_json=gmail_secrets_json, gmail_refresh_file=gmail_refresh_file, enable_logging=enable_logging, headless=True)
+        ctx.obj = {
+            "gmail": GMailCorpus("andrew.torgesen@gmail.com", gmail_secrets_json=gmail_secrets_json, gmail_refresh_file=gmail_refresh_file, enable_logging=enable_logging, headless=True),
+            "gbot": GMailCorpus("goromal.bot@gmail.com", gmail_secrets_json=gmail_secrets_json, gmail_refresh_file=gbot_refresh_file, enable_logging=enable_logging, headless=True)
+        }
     except Exception as e:
-        print(f"Program error: {e}")
+        sys.stderr.write(f"Program error: {e}")
         exit(1)
 
 @cli.command()
@@ -49,8 +61,26 @@ def cli(ctx: click.Context, gmail_secrets_json, gmail_refresh_file, enable_loggi
 )
 def clean(ctx: click.Context, num_messages):
     """Clean out promotions and social emails."""
-    inbox = ctx.obj.Inbox(num_messages)
+    inbox = ctx.obj["gmail"].Inbox(num_messages)
     inbox.clean()
+
+@cli.command()
+@click.pass_context
+@click.argument("recipient")
+@click.argument("subject")
+@click.argument("body")
+def send(ctx: click.Context, recipient, subject, body):
+    """Send an email."""
+    ctx.obj["gmail"].send(to=recipient, subject=subject, message=body)
+
+@cli.command()
+@click.pass_context
+@click.argument("recipient")
+@click.argument("subject")
+@click.argument("body")
+def gbot_send(ctx: click.Context, recipient, subject, body):
+    """Send an email from GBot."""
+    ctx.obj["gbot"].send(to=recipient, subject=subject, message=body)
 
 def main():
     cli()
