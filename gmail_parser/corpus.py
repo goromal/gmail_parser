@@ -32,8 +32,6 @@ class GMailCorpus(object):
             self.gmail_scope,
             headless=headless
         )
-        if self.service is None:
-            raise Exception(f"Expired credentials at {self.gmail_refresh_file}")
         
         self.userID = email_address
         
