@@ -76,7 +76,7 @@ class GMailCorpus(object):
         json_messages.extend(list_response['messages'])
         while 'nextPageToken' in list_response and len(json_messages) < limit:
             page_token = list_response['nextPageToken']
-            list_response = callAPI(self.service.users().messages().list(userId=self.userID,maxResults=limit-len(json_messages),pageToken=page_token))
+            list_response = callAPI(self.service.users().messages().list(userId=self.userID,maxResults=limit-len(json_messages),pageToken=page_token,labelIds=["INBOX"]))
             if 'messages' in list_response:
                 self._log('Page %s -> %d messages.' % (page_token, len(list_response['messages'])))
                 json_messages.extend(list_response['messages'])
