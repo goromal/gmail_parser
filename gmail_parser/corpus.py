@@ -16,7 +16,6 @@ class GMailCorpus(object):
     def __init__(self, email_address, messages=None, **kwargs):
         self.gmail_secrets_json = GPD.getKwargsOrDefault("gmail_secrets_json", **kwargs)
         self.gmail_refresh_file = GPD.getKwargsOrDefault("gmail_refresh_file", **kwargs)
-        self.gmail_scope = GPD.getKwargsOrDefault("gmail_corpus_scope", **kwargs)
         self.enable_logging = GPD.getKwargsOrDefault("enable_logging", **kwargs)
         headless = kwargs["headless"] if "headless" in kwargs else False
 
@@ -29,7 +28,6 @@ class GMailCorpus(object):
             "v1",
             self.gmail_secrets_json,
             self.gmail_refresh_file,
-            self.gmail_scope,
             headless=headless
         )
         
