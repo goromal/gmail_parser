@@ -4,3 +4,5 @@
 
 Assorted Python tools for semi-automated processing of GMail messages.
 
+[Docs](https://goromal.github.io/anixpkgs/python/gmail-parser.html)
+
