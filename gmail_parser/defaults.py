@@ -1,10 +1,10 @@
 import os
 
 class GmailParserDefaults:
-    GMAIL_SECRETS_JSON = os.path.expanduser("~/secrets/google/client_secrets.json")
-    GMAIL_REFRESH_FILE = os.path.expanduser("~/secrets/google/refresh.json")
-    GBOT_REFRESH_FILE = os.path.expanduser("~/secrets/google/bot_refresh.json")
-    JOURNAL_REFRESH_FILE = os.path.expanduser("~/secrets/google/journal_refresh.json")
+    GMAIL_SECRETS_JSON = "~/secrets/google/client_secrets.json"
+    GMAIL_REFRESH_FILE = "~/secrets/google/refresh.json"
+    GBOT_REFRESH_FILE = "~/secrets/google/bot_refresh.json"
+    JOURNAL_REFRESH_FILE = "~/secrets/google/journal_refresh.json"
     ENABLE_LOGGING = False
 
     @staticmethod
