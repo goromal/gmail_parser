@@ -9,7 +9,7 @@ from gmail_parser.corpus import GMailCorpus
 @click.option(
     "--gmail-secrets-json",
     "gmail_secrets_json",
-    type=click.Path(exists=True),
+    type=click.Path(),
     default=GPD.GMAIL_SECRETS_JSON,
     show_default=True,
     help="GMail client secrets file.",
