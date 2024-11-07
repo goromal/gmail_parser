@@ -12,12 +12,16 @@ from easy_google_auth.auth import getGoogleService
 from gmail_parser.utils import callAPI, GMailMessage
 from gmail_parser.defaults import GmailParserDefaults as GPD
 
+
 class GMailCorpus(object):
     def _check_valid_interface(func):
         def wrapper(self, *args, **kwargs):
             if self.service is None:
-                raise Exception("GMail interface not initialized properly; check your secrets")
+                raise Exception(
+                    "GMail interface not initialized properly; check your secrets"
+                )
             return func(self, *args, **kwargs)
+
         return wrapper
 
     def __init__(self, email_address, messages=None, **kwargs):
@@ -27,7 +31,11 @@ class GMailCorpus(object):
         headless = kwargs["headless"] if "headless" in kwargs else False
 
         if self.enable_logging:
-            logging.basicConfig(filename='LOG-google_tools_GMAIL_%s.log' % time.strftime('%Y%m%d-%H%M%S'), level=logging.INFO)
+            logging.basicConfig(
+                filename="LOG-google_tools_GMAIL_%s.log"
+                % time.strftime("%Y%m%d-%H%M%S"),
+                level=logging.INFO,
+            )
             logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
         self.service = None
@@ -37,13 +45,13 @@ class GMailCorpus(object):
                 "v1",
                 self.gmail_secrets_json,
                 self.gmail_refresh_file,
-                headless=headless
+                headless=headless,
             )
         except:
             pass
-        
+
         self.userID = email_address
-        
+
         if messages is None:
             self.messages = []
         else:
@@ -67,116 +75,156 @@ class GMailCorpus(object):
 
     @_check_valid_interface
     def _scoped_copy(self, messages):
-        return GMailCorpus(self.userID,
-                           messages,
-                           gmail_secrets_json=self.gmail_secrets_json,
-                           gmail_refresh_file=self.gmail_refresh_file,
-                           enable_logging=self.enable_logging
-                          )
+        return GMailCorpus(
+            self.userID,
+            messages,
+            gmail_secrets_json=self.gmail_secrets_json,
+            gmail_refresh_file=self.gmail_refresh_file,
+            enable_logging=self.enable_logging,
+        )
 
     @_check_valid_interface
     def _log(self, msg):
         if self.enable_logging:
-            logging.info('[GMAILCORPUS] ' + msg)
+            logging.info("[GMAILCORPUS] " + msg)
 
     @_check_valid_interface
     def _logwarn(self, msg):
         if self.enable_logging:
-            logging.warn('[GMAILCORPUS] ' + msg)
+            logging.warn("[GMAILCORPUS] " + msg)
 
     @_check_valid_interface
     def _get_all_mail(self, limit):
         json_messages = list()
-        list_response = callAPI(self.service.users().messages().list(userId=self.userID, maxResults=limit, labelIds=["INBOX"]))
-        self._log('Front Page -> %d messages.' % len(list_response['messages']))
-        json_messages.extend(list_response['messages'])
-        while 'nextPageToken' in list_response and len(json_messages) < limit:
-            page_token = list_response['nextPageToken']
-            list_response = callAPI(self.service.users().messages().list(userId=self.userID,maxResults=limit-len(json_messages),pageToken=page_token,labelIds=["INBOX"]))
-            if 'messages' in list_response:
-                self._log('Page %s -> %d messages.' % (page_token, len(list_response['messages'])))
-                json_messages.extend(list_response['messages'])
-        self._log('%d total messages.' % len(json_messages))
+        list_response = callAPI(
+            self.service.users()
+            .messages()
+            .list(userId=self.userID, maxResults=limit, labelIds=["INBOX"])
+        )
+        self._log("Front Page -> %d messages." % len(list_response["messages"]))
+        json_messages.extend(list_response["messages"])
+        while "nextPageToken" in list_response and len(json_messages) < limit:
+            page_token = list_response["nextPageToken"]
+            list_response = callAPI(
+                self.service.users()
+                .messages()
+                .list(
+                    userId=self.userID,
+                    maxResults=limit - len(json_messages),
+                    pageToken=page_token,
+                    labelIds=["INBOX"],
+                )
+            )
+            if "messages" in list_response:
+                self._log(
+                    "Page %s -> %d messages."
+                    % (page_token, len(list_response["messages"]))
+                )
+                json_messages.extend(list_response["messages"])
+        self._log("%d total messages." % len(json_messages))
         return json_messages
 
     @_check_valid_interface
     def Inbox(self, limit=50000):
-        self._log('Constructing Inbox.')
+        self._log("Constructing Inbox.")
         self.messages.clear()
         all_mail = self._get_all_mail(limit)
         for i in progressbar.progressbar(range(len(all_mail))):
             json_message = all_mail[i]
-            thread_json_message = callAPI(self.service.users().threads().get(userId=self.userID,id=json_message['threadId']))
-            thread_msgs_json = thread_json_message['messages']
-            if 'labelIds' in thread_msgs_json[0] and 'INBOX' in thread_msgs_json[0]['labelIds']:
-              self.messages.append(GMailMessage(thread_msgs_json, self))
-        self._log('%d total INBOX messages.' % len(self.messages))
-        self._log('%d -> %d messages.' % (len(all_mail), len(self.messages)))
+            thread_json_message = callAPI(
+                self.service.users()
+                .threads()
+                .get(userId=self.userID, id=json_message["threadId"])
+            )
+            if "messages" in thread_json_message:
+                thread_msgs_json = thread_json_message["messages"]
+                if (
+                    "labelIds" in thread_msgs_json[0]
+                    and "INBOX" in thread_msgs_json[0]["labelIds"]
+                ):
+                    self.messages.append(GMailMessage(thread_msgs_json, self))
+            else:
+                self._logwarn("Received a thread with no messages.")
+        self._log("%d total INBOX messages." % len(self.messages))
+        self._log("%d -> %d messages." % (len(all_mail), len(self.messages)))
         return self
 
     @_check_valid_interface
     def Outbox(self, limit=50000):
-        self._log('Constructing Outbox.')
+        self._log("Constructing Outbox.")
         self.messages.clear()
         all_mail = self._get_all_mail(limit)
         for i in progressbar.progressbar(range(len(all_mail))):
             json_message = all_mail[i]
-            full_json_message = callAPI(self.service.users().messages().get(userId=self.userID,id=json_message['id']))
-            if 'labelIds' in full_json_message and 'SENT' in full_json_message['labelIds']:
+            full_json_message = callAPI(
+                self.service.users()
+                .messages()
+                .get(userId=self.userID, id=json_message["id"])
+            )
+            if (
+                "labelIds" in full_json_message
+                and "SENT" in full_json_message["labelIds"]
+            ):
                 self.messages.append(GMailMessage(full_json_message, self))
-        self._log('%d total OUTBOX messages.' % len(self.messages))
-        self._log('%d -> %d messages.' % (len(all_mail), len(self.messages)))
+        self._log("%d total OUTBOX messages." % len(self.messages))
+        self._log("%d -> %d messages." % (len(all_mail), len(self.messages)))
         return self
 
     @_check_valid_interface
     def fromDates(self, startDate=None, endDate=None):
         new_messages = list()
         if not startDate is None and not endDate is None:
-            date0 = datetime.strptime(startDate, '%m/%d/%Y')
-            date1 = datetime.strptime(endDate, '%m/%d/%Y')
+            date0 = datetime.strptime(startDate, "%m/%d/%Y")
+            date1 = datetime.strptime(endDate, "%m/%d/%Y")
             new_messages = list()
             for message in self.messages:
                 if message.getDate() >= date0 and message.getDate() <= date1:
                     new_messages.append(message)
         elif not startDate is None and endDate is None:
-            date0 = datetime.strptime(startDate, '%m/%d/%Y')
+            date0 = datetime.strptime(startDate, "%m/%d/%Y")
             new_messages = list()
             for message in self.messages:
                 if message.getDate() >= date0:
                     new_messages.append(message)
         elif startDate is None and not endDate is None:
-            date1 = datetime.strptime(endDate, '%m/%d/%Y')
+            date1 = datetime.strptime(endDate, "%m/%d/%Y")
             new_messages = list()
             for message in self.messages:
                 if message.getDate() <= date1:
                     new_messages.append(message)
         else:
             new_messages = self.messages
-        self._log('%d -> %d messages.' % (len(self.messages), len(new_messages)))
+        self._log("%d -> %d messages." % (len(self.messages), len(new_messages)))
         return self._scoped_copy(new_messages)
 
     @_check_valid_interface
     def fromSenders(self, senders):
-        new_messages = [message for message in self.messages if message.getSenderEmail() in senders]
-        self._log('%d -> %d messages.' % (len(self.messages), len(new_messages)))
+        new_messages = [
+            message for message in self.messages if message.getSenderEmail() in senders
+        ]
+        self._log("%d -> %d messages." % (len(self.messages), len(new_messages)))
         return self._scoped_copy(new_messages)
 
     @_check_valid_interface
     def fromSubject(self, subject_strings):
-        new_messages = [message for message in self.messages if message.hasSubject(subject_strings)]
-        self._log('%d -> %d messages.' % (len(self.messages), len(new_messages)))
+        new_messages = [
+            message for message in self.messages if message.hasSubject(subject_strings)
+        ]
+        self._log("%d -> %d messages." % (len(self.messages), len(new_messages)))
         return self._scoped_copy(new_messages)
 
     @_check_valid_interface
     def fromContents(self, content_strings):
-        new_messages = [message for message in self.messages if message.hasText(content_strings)]
-        self._log('%d -> %d messages.' % (len(self.messages), len(new_messages)))
+        new_messages = [
+            message for message in self.messages if message.hasText(content_strings)
+        ]
+        self._log("%d -> %d messages." % (len(self.messages), len(new_messages)))
         return self._scoped_copy(new_messages)
 
     @_check_valid_interface
     def fromUnread(self):
         new_messages = [message for message in self.messages if not message.isRead()]
-        self._log('%d -> %d messages.' % (len(self.messages), len(new_messages)))
+        self._log("%d -> %d messages." % (len(self.messages), len(new_messages)))
         return self._scoped_copy(new_messages)
 
     @_check_valid_interface
@@ -213,7 +261,7 @@ class GMailCorpus(object):
 
     @_check_valid_interface
     def clean(self):
-        blacklist = ('CATEGORY_PROMOTIONS', 'CATEGORY_SOCIAL')
+        blacklist = ("CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL")
         num_trashed = 0
         num_messages = len(self.messages)
         for i in progressbar.progressbar(range(num_messages)):
@@ -223,7 +271,7 @@ class GMailCorpus(object):
                     message.moveToTrash()
                     num_trashed += 1
                     break
-        self._log('%d/%d messages moved to trash.' % (num_trashed, num_messages))
+        self._log("%d/%d messages moved to trash." % (num_trashed, num_messages))
 
     @_check_valid_interface
     def getSenders(self):
@@ -235,6 +283,7 @@ class GMailCorpus(object):
             else:
                 senders[sender] = 1
         return dict(sorted(senders.items(), key=lambda item: -item[1]))
+
 
 class GBotCorpus(GMailCorpus):
     def __init__(self, email_address, messages=None, **kwargs):
@@ -253,24 +302,46 @@ class GBotCorpus(GMailCorpus):
         all_mail = self._get_all_mail(limit)
         for i in progressbar.progressbar(range(len(all_mail))):
             json_message = all_mail[i]
-            thread_json_message = callAPI(self.service.users().threads().get(userId=self.userID,id=json_message['threadId']))
-            thread_msgs_json = thread_json_message['messages']
-            if 'labelIds' in thread_msgs_json[0] and 'INBOX' in thread_msgs_json[0]['labelIds']:
+            thread_json_message = callAPI(
+                self.service.users()
+                .threads()
+                .get(userId=self.userID, id=json_message["threadId"])
+            )
+            thread_msgs_json = thread_json_message["messages"]
+            if (
+                "labelIds" in thread_msgs_json[0]
+                and "INBOX" in thread_msgs_json[0]["labelIds"]
+            ):
                 for json_object in thread_msgs_json:
-                    if "parts" in json_object["payload"] and "filename" in json_object["payload"]["parts"][0] and json_object["payload"]["parts"][0]["filename"] == "text_0.txt":
+                    if (
+                        "parts" in json_object["payload"]
+                        and "filename" in json_object["payload"]["parts"][0]
+                        and json_object["payload"]["parts"][0]["filename"]
+                        == "text_0.txt"
+                    ):
                         messageId = json_object["id"]
-                        attachmentId = json_object["payload"]["parts"][0]["body"]["attachmentId"]
-                        dataMsg = callAPI(self.service.users().messages().attachments().get(userId=self.userID,messageId=messageId,id=attachmentId))
+                        attachmentId = json_object["payload"]["parts"][0]["body"][
+                            "attachmentId"
+                        ]
+                        dataMsg = callAPI(
+                            self.service.users()
+                            .messages()
+                            .attachments()
+                            .get(
+                                userId=self.userID, messageId=messageId, id=attachmentId
+                            )
+                        )
                         json_object["text_attachment_data"] = dataMsg["data"]
                 self.messages.append(GMailMessage(thread_msgs_json, self))
-        self._log('%d total INBOX messages.' % len(self.messages))
-        self._log('%d -> %d messages.' % (len(all_mail), len(self.messages)))
+        self._log("%d total INBOX messages." % len(self.messages))
+        self._log("%d -> %d messages." % (len(all_mail), len(self.messages)))
         return self
 
     @GMailCorpus._check_valid_interface
     def Outbox(self, limit=50000):
         self._log("Outbox not supported for GBot.")
         return self
+
 
 class JournalCorpus(GMailCorpus):
     def __init__(self, email_address, messages=None, **kwargs):
@@ -289,18 +360,39 @@ class JournalCorpus(GMailCorpus):
         all_mail = self._get_all_mail(limit)
         for i in progressbar.progressbar(range(len(all_mail))):
             json_message = all_mail[i]
-            thread_json_message = callAPI(self.service.users().threads().get(userId=self.userID,id=json_message['threadId']))
-            thread_msgs_json = thread_json_message['messages']
-            if 'labelIds' in thread_msgs_json[0] and 'INBOX' in thread_msgs_json[0]['labelIds']:
+            thread_json_message = callAPI(
+                self.service.users()
+                .threads()
+                .get(userId=self.userID, id=json_message["threadId"])
+            )
+            thread_msgs_json = thread_json_message["messages"]
+            if (
+                "labelIds" in thread_msgs_json[0]
+                and "INBOX" in thread_msgs_json[0]["labelIds"]
+            ):
                 for json_object in thread_msgs_json:
-                    if "parts" in json_object["payload"] and "filename" in json_object["payload"]["parts"][0] and json_object["payload"]["parts"][0]["filename"] == "text_0.txt":
+                    if (
+                        "parts" in json_object["payload"]
+                        and "filename" in json_object["payload"]["parts"][0]
+                        and json_object["payload"]["parts"][0]["filename"]
+                        == "text_0.txt"
+                    ):
                         messageId = json_object["id"]
-                        attachmentId = json_object["payload"]["parts"][0]["body"]["attachmentId"]
-                        dataMsg = callAPI(self.service.users().messages().attachments().get(userId=self.userID,messageId=messageId,id=attachmentId))
+                        attachmentId = json_object["payload"]["parts"][0]["body"][
+                            "attachmentId"
+                        ]
+                        dataMsg = callAPI(
+                            self.service.users()
+                            .messages()
+                            .attachments()
+                            .get(
+                                userId=self.userID, messageId=messageId, id=attachmentId
+                            )
+                        )
                         json_object["text_attachment_data"] = dataMsg["data"]
                 self.messages.append(GMailMessage(thread_msgs_json, self))
-        self._log('%d total INBOX messages.' % len(self.messages))
-        self._log('%d -> %d messages.' % (len(all_mail), len(self.messages)))
+        self._log("%d total INBOX messages." % len(self.messages))
+        self._log("%d -> %d messages." % (len(all_mail), len(self.messages)))
         return self
 
     @GMailCorpus._check_valid_interface

@@ -4,6 +4,7 @@ import sys
 from gmail_parser.defaults import GmailParserDefaults as GPD
 from gmail_parser.corpus import GMailCorpus
 
+
 @click.group()
 @click.pass_context
 @click.option(
@@ -46,17 +47,43 @@ from gmail_parser.corpus import GMailCorpus
     show_default=True,
     help="Whether to enable logging.",
 )
-def cli(ctx: click.Context, gmail_secrets_json, gmail_refresh_file, gbot_refresh_file, journal_refresh_file, enable_logging):
+def cli(
+    ctx: click.Context,
+    gmail_secrets_json,
+    gmail_refresh_file,
+    gbot_refresh_file,
+    journal_refresh_file,
+    enable_logging,
+):
     """Manage GMail."""
     try:
         ctx.obj = {
-            "gmail": GMailCorpus("andrew.torgesen@gmail.com", gmail_secrets_json=gmail_secrets_json, gmail_refresh_file=gmail_refresh_file, enable_logging=enable_logging, headless=True),
-            "gbot": GMailCorpus("goromal.bot@gmail.com", gmail_secrets_json=gmail_secrets_json, gmail_refresh_file=gbot_refresh_file, enable_logging=enable_logging, headless=True),
-            "journal": GMailCorpus("goromal.journal@gmail.com", gmail_secrets_json=gmail_secrets_json, gmail_refresh_file=journal_refresh_file, enable_logging=enable_logging, headless=True),
+            "gmail": GMailCorpus(
+                "andrew.torgesen@gmail.com",
+                gmail_secrets_json=gmail_secrets_json,
+                gmail_refresh_file=gmail_refresh_file,
+                enable_logging=enable_logging,
+                headless=True,
+            ),
+            "gbot": GMailCorpus(
+                "goromal.bot@gmail.com",
+                gmail_secrets_json=gmail_secrets_json,
+                gmail_refresh_file=gbot_refresh_file,
+                enable_logging=enable_logging,
+                headless=True,
+            ),
+            "journal": GMailCorpus(
+                "goromal.journal@gmail.com",
+                gmail_secrets_json=gmail_secrets_json,
+                gmail_refresh_file=journal_refresh_file,
+                enable_logging=enable_logging,
+                headless=True,
+            ),
         }
     except Exception as e:
         sys.stderr.write(f"Program error: {e}")
         exit(1)
+
 
 @cli.command()
 @click.pass_context
@@ -73,6 +100,7 @@ def clean(ctx: click.Context, num_messages):
     inbox = ctx.obj["gmail"].Inbox(num_messages)
     inbox.clean()
 
+
 @cli.command()
 @click.pass_context
 @click.argument("recipient")
@@ -81,6 +109,7 @@ def clean(ctx: click.Context, num_messages):
 def send(ctx: click.Context, recipient, subject, body):
     """Send an email."""
     ctx.obj["gmail"].send(to=recipient, subject=subject, message=body)
+
 
 @cli.command()
 @click.pass_context
@@ -91,6 +120,7 @@ def gbot_send(ctx: click.Context, recipient, subject, body):
     """Send an email from GBot."""
     ctx.obj["gbot"].send(to=recipient, subject=subject, message=body)
 
+
 @cli.command()
 @click.pass_context
 @click.argument("recipient")
@@ -100,8 +130,10 @@ def journal_send(ctx: click.Context, recipient, subject, body):
     """Send an email from Journal."""
     ctx.obj["journal"].send(to=recipient, subject=subject, message=body)
 
+
 def main():
     cli()
+
 
 if __name__ == "__main__":
     main()
