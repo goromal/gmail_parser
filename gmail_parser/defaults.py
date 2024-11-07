@@ -1,5 +1,6 @@
 import os
 
+
 class GmailParserDefaults:
     GMAIL_SECRETS_JSON = "~/secrets/google/client_secrets.json"
     GMAIL_REFRESH_FILE = "~/secrets/google/refresh.json"

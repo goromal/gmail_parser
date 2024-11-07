@@ -18,5 +18,5 @@ setup(
     author_email=about["__author_email__"],
     packages=find_packages(),
     include_package_data=True,
-    entry_points={"console_scripts":["gmail-manager=gmail_parser.cli:main"]},
+    entry_points={"console_scripts": ["gmail-manager=gmail_parser.cli:main"]},
 )
