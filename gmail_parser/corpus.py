@@ -94,12 +94,18 @@ class GMailCorpus(object):
             logging.warn("[GMAILCORPUS] " + msg)
 
     @_check_valid_interface
-    def _get_all_mail(self, limit):
+    def _get_all_mail(self, limit, label_ids=("INBOX",)):
+        # label_ids=None lists the latest messages mailbox-wide (used by the
+        # cleaner, which matches rules on each message's own labels); the
+        # default keeps Inbox()/Outbox() scoped to INBOX as before.
+        list_kwargs = {"userId": self.userID}
+        if label_ids is not None:
+            list_kwargs["labelIds"] = list(label_ids)
         json_messages = list()
         list_response = callAPI(
             self.service.users()
             .messages()
-            .list(userId=self.userID, maxResults=limit, labelIds=["INBOX"])
+            .list(maxResults=limit, **list_kwargs)
         )
         self._log("Front Page -> %d messages." % len(list_response["messages"]))
         json_messages.extend(list_response["messages"])
@@ -109,10 +115,9 @@ class GMailCorpus(object):
                 self.service.users()
                 .messages()
                 .list(
-                    userId=self.userID,
                     maxResults=limit - len(json_messages),
                     pageToken=page_token,
-                    labelIds=["INBOX"],
+                    **list_kwargs,
                 )
             )
             if "messages" in list_response:
@@ -125,11 +130,15 @@ class GMailCorpus(object):
         return json_messages
 
     @_check_valid_interface
-    def Inbox(self, limit=50000):
+    def Inbox(self, limit=50000, reporter=None):
+        from gmail_parser.progress import ProgressReporter, STAGE_DOWNLOAD
+
+        reporter = reporter or ProgressReporter(None)
         self._log("Constructing Inbox.")
         self.messages.clear()
         all_mail = self._get_all_mail(limit)
-        for i in progressbar.progressbar(range(len(all_mail))):
+        total = len(all_mail)
+        for i in progressbar.progressbar(range(total)):
             json_message = all_mail[i]
             thread_json_message = callAPI(
                 self.service.users()
@@ -145,9 +154,60 @@ class GMailCorpus(object):
                     self.messages.append(GMailMessage(thread_msgs_json, self))
             else:
                 self._logwarn("Received a thread with no messages.")
+            reporter.emit(STAGE_DOWNLOAD, i + 1, total)
         self._log("%d total INBOX messages." % len(self.messages))
         self._log("%d -> %d messages." % (len(all_mail), len(self.messages)))
         return self
+
+    @_check_valid_interface
+    def loadRecent(self, limit, reporter=None):
+        """Load the latest ``limit`` messages mailbox-wide (no INBOX filter),
+        each as its own message so rules can match on its labels."""
+        from gmail_parser.progress import ProgressReporter, STAGE_DOWNLOAD
+
+        reporter = reporter or ProgressReporter(None)
+        self._log("Loading %d most recent messages." % limit)
+        self.messages.clear()
+        all_mail = self._get_all_mail(limit, label_ids=None)
+        total = len(all_mail)
+        for i in progressbar.progressbar(range(total)):
+            json_message = all_mail[i]
+            full_json_message = callAPI(
+                self.service.users()
+                .messages()
+                .get(userId=self.userID, id=json_message["id"])
+            )
+            if full_json_message:
+                self.messages.append(GMailMessage([full_json_message], self))
+            reporter.emit(STAGE_DOWNLOAD, i + 1, total)
+        self._log("%d messages loaded." % len(self.messages))
+        return self
+
+    @_check_valid_interface
+    def getLabelMap(self):
+        """Return a ``{label name: label id}`` map from the account's labels."""
+        from gmail_parser.labels import label_map_from_list_response
+
+        return label_map_from_list_response(
+            callAPI(self.service.users().labels().list(userId=self.userID))
+        )
+
+    @_check_valid_interface
+    def process(self, rules, archive_root, num_messages=1000, reporter=None, cancel=None):
+        """Download the latest ``num_messages`` messages mailbox-wide, then
+        apply the label -> action rules to them. Returns the summary dict."""
+        from gmail_parser.processor import process_messages
+
+        self.loadRecent(num_messages, reporter=reporter)
+        label_map = self.getLabelMap()
+        return process_messages(
+            self.messages,
+            rules,
+            label_map,
+            os.path.expanduser(archive_root),
+            reporter=reporter,
+            cancel=cancel,
+        )
 
     @_check_valid_interface
     def Outbox(self, limit=50000):

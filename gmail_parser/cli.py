@@ -103,6 +103,86 @@ def clean(ctx: click.Context, num_messages):
 
 @cli.command()
 @click.pass_context
+@click.option(
+    "--config",
+    "config",
+    type=click.Path(),
+    default=GPD.MAIL_CLEAN_CONFIG,
+    show_default=True,
+    help="Label->action rules config (pipe-delimited LABEL|ACTION).",
+)
+@click.option(
+    "--archive-root",
+    "archive_root",
+    type=click.Path(),
+    default=GPD.GMAIL_ARCHIVE_ROOT,
+    show_default=True,
+    help="Directory under which archived emails are written.",
+)
+@click.option(
+    "--num-messages",
+    "num_messages",
+    type=int,
+    default=1000,
+    show_default=True,
+    help="Number of latest messages to load and process.",
+)
+def process(ctx: click.Context, config, archive_root, num_messages):
+    """Apply label->action rules from CONFIG to the latest N messages.
+
+    Emits one JSON progress event per line to stdout (consumed by the Mail UI),
+    then a final {"summary": ...} line."""
+    import json
+    from gmail_parser.rules import parse_rules
+    from gmail_parser.progress import ProgressReporter
+
+    with open(os.path.expanduser(config)) as f:
+        rules = parse_rules(f.read())
+    reporter = ProgressReporter(sys.stdout)
+    summary = ctx.obj["gmail"].process(
+        rules, archive_root, num_messages=num_messages, reporter=reporter
+    )
+    sys.stdout.write(json.dumps({"summary": summary}) + "\n")
+    sys.stdout.flush()
+
+
+@cli.command(name="archive-index")
+@click.option(
+    "--archive-root",
+    "archive_root",
+    type=click.Path(),
+    default=GPD.GMAIL_ARCHIVE_ROOT,
+    show_default=True,
+    help="Directory under which archived emails are written.",
+)
+def archive_index(archive_root):
+    """Print the archived-email index as JSON."""
+    import json
+    from gmail_parser.archive_index import list_archives
+
+    print(json.dumps(list_archives(os.path.expanduser(archive_root))))
+
+
+@cli.command(name="archive-delete")
+@click.option(
+    "--archive-root",
+    "archive_root",
+    type=click.Path(),
+    default=GPD.GMAIL_ARCHIVE_ROOT,
+    show_default=True,
+    help="Directory under which archived emails are written.",
+)
+@click.argument("label")
+@click.argument("message_id")
+def archive_delete(archive_root, label, message_id):
+    """Permanently delete one archived email by LABEL and MESSAGE_ID."""
+    from gmail_parser.archive_index import delete_archive
+
+    delete_archive(os.path.expanduser(archive_root), label, message_id)
+
+
+@cli.command()
+@click.pass_context
 @click.argument("recipient")
 @click.argument("subject")
 @click.argument("body")
