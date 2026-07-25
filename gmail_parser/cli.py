@@ -1,4 +1,5 @@
 import click
+import os
 import sys
 
 from gmail_parser.defaults import GmailParserDefaults as GPD
