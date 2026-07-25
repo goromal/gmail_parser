@@ -1,5 +1,6 @@
 from datetime import datetime
 import base64
+import html
 import re
 import html2text
 
@@ -26,6 +27,7 @@ class GMailMessage(object):
         self.sender_email = ""
         self.is_trash = False
         self.content = ""
+        self.html_content = ""
         self.id = json_object["id"]
         for payload_header in json_object["payload"]["headers"]:
             if payload_header["name"] == "Subject":
@@ -63,6 +65,14 @@ class GMailMessage(object):
                     ):
                         self.content += self._gmail_decode_string(part["body"]["data"])
                     elif (
+                        part["mimeType"] == "text/html"
+                        and "body" in part
+                        and "data" in part["body"]
+                    ):
+                        self.html_content += self._gmail_decode_string(
+                            part["body"]["data"]
+                        )
+                    elif (
                         part["mimeType"] == "multipart/alternative" and "parts" in part
                     ):
                         for partpart in part["parts"]:
@@ -72,6 +82,14 @@ class GMailMessage(object):
                                 and "data" in partpart["body"]
                             ):
                                 self.content += self._gmail_decode_string(
+                                    partpart["body"]["data"]
+                                )
+                            elif (
+                                partpart["mimeType"] == "text/html"
+                                and "body" in partpart
+                                and "data" in partpart["body"]
+                            ):
+                                self.html_content += self._gmail_decode_string(
                                     partpart["body"]["data"]
                                 )
         self.content = self.content.replace("\r", "")
@@ -85,11 +103,22 @@ class GMailMessage(object):
             "utf-8"
         )
 
+    def getId(self):
+        return self.id
+
     def getLabels(self):
         return self.labels
 
     def getContent(self):
         return self.content
+
+    def getArchiveBody(self):
+        """HTML suitable for archiving: the message's own text/html part if it
+        has one, otherwise its plain text escaped inside a <pre> block so it
+        still renders faithfully."""
+        if self.html_content:
+            return self.html_content
+        return "<pre>" + html.escape(self.content) + "</pre>"
 
     def getText(self):
         if self.is_html:

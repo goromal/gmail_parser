@@ -7,6 +7,8 @@ class GmailParserDefaults:
     GBOT_REFRESH_FILE = "~/secrets/google/bot_refresh.json"
     JOURNAL_REFRESH_FILE = "~/secrets/google/journal_refresh.json"
     ENABLE_LOGGING = False
+    MAIL_CLEAN_CONFIG = "~/configs/mail-clean.csv"
+    GMAIL_ARCHIVE_ROOT = "~/data/gmail"
 
     @staticmethod
     def getKwargsOrDefault(argname, **kwargs):
