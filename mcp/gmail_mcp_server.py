@@ -125,7 +125,15 @@ def handle_tool_call(client, name, args):
             ids, error = _select_ids(client, args)
             if error:
                 return {"error": error}
-            return {"trashed": client.trash_ids(ids) if ids else 0}
+            requested = len(ids)
+            trashed = client.trash_ids(ids) if ids else 0
+            result = {"trashed": trashed, "requested": requested}
+            if trashed < requested:
+                # bulkTrash returns the count actually trashed; a shortfall
+                # (e.g. rate-limited items that exhausted retries) is reported
+                # explicitly rather than masquerading as full success.
+                result["incomplete"] = requested - trashed
+            return result
         elif name == "gmail_mark_read":
             ids, error = _select_ids(client, args)
             if error:

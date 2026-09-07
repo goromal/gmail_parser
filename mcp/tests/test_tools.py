@@ -43,15 +43,21 @@ class BulkSelectorTest(unittest.TestCase):
     def test_trash_by_query_expands_ids(self):
         c = FakeGmailClient(search_ids=["1", "2", "3"])
         out = srv.handle_tool_call(c, "gmail_trash", {"query": "from:tiktok"})
-        self.assertEqual(out, {"trashed": 3})
+        self.assertEqual(out, {"trashed": 3, "requested": 3})
         self.assertEqual(c.calls[0], ("search_ids", {"query": "from:tiktok", "limit": None}))
         self.assertEqual(c.calls[1], ("trash_ids", {"ids": ["1", "2", "3"]}))
 
     def test_trash_by_explicit_ids_skips_search(self):
         c = FakeGmailClient()
         out = srv.handle_tool_call(c, "gmail_trash", {"ids": ["x", "y"]})
-        self.assertEqual(out, {"trashed": 2})
+        self.assertEqual(out, {"trashed": 2, "requested": 2})
         self.assertEqual(c.calls, [("trash_ids", {"ids": ["x", "y"]})])
+
+    def test_trash_reports_incomplete_when_fewer_trashed(self):
+        # bulkTrash trashed only 1 of the 3 selected (e.g. rate-limited).
+        c = FakeGmailClient(search_ids=["1", "2", "3"], trash_ids=1)
+        out = srv.handle_tool_call(c, "gmail_trash", {"query": "label:Amazon"})
+        self.assertEqual(out, {"trashed": 1, "requested": 3, "incomplete": 2})
 
     def test_trash_without_selector_errors_and_acts_on_nothing(self):
         c = FakeGmailClient()
@@ -62,7 +68,7 @@ class BulkSelectorTest(unittest.TestCase):
     def test_trash_query_matching_nothing_trashes_nothing(self):
         c = FakeGmailClient(search_ids=[])
         out = srv.handle_tool_call(c, "gmail_trash", {"query": "from:nobody"})
-        self.assertEqual(out, {"trashed": 0})
+        self.assertEqual(out, {"trashed": 0, "requested": 0})
         self.assertEqual([call[0] for call in c.calls], ["search_ids"])
 
     def test_mark_read(self):

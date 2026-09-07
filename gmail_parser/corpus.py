@@ -348,37 +348,70 @@ class GMailCorpus(object):
         return self.bulkModifyLabels(ids, add_labels=["UNREAD"])
 
     @_check_valid_interface
-    def bulkTrash(self, ids, reporter=None):
-        """Move many messages to Trash (recoverable) in batches of 100.
+    def bulkTrash(self, ids, reporter=None, batch_size=50, max_attempts=6):
+        """Move many messages to Trash (recoverable), returning the number
+        ACTUALLY trashed.
 
         Trashing is deliberately used instead of ``batchDelete`` (which is
         permanent and unrecoverable): a mistaken bulk action can still be undone
         from Gmail's Trash for 30 days.
+
+        Gmail rate-limits bursts of per-message ``trash`` calls (HTTP 429). Each
+        batch is sent with a per-item callback so failures are seen (not silently
+        dropped), and any failed ids are retried with exponential backoff. Trash
+        is idempotent, so retrying an id that in fact succeeded is harmless;
+        success is tracked in a set so such an id is never counted twice. A
+        return value < ``len(ids)`` means some ids could not be trashed even
+        after ``max_attempts`` - the caller should treat the difference as a
+        real failure, not assume completion.
         """
+        import time
+
         from gmail_parser.search import chunked
         from gmail_parser.progress import ProgressReporter, STAGE_APPLY
 
         reporter = reporter or ProgressReporter(None)
         ids = list(ids)
         total = len(ids)
-        done = 0
-        for batch_ids in chunked(ids, 100):
-            batch = self.service.new_batch_http_request()
-            for message_id in batch_ids:
-                batch.add(
-                    self.service.users()
-                    .messages()
-                    .trash(userId=self.userID, id=message_id),
-                    request_id=message_id,
-                )
-            try:
-                batch.execute()
-            except Exception as e:
-                print(e)
-            for _ in batch_ids:
-                done += 1
-                reporter.emit(STAGE_APPLY, done, total)
-        return total
+        trashed_ids = set()
+
+        for batch_ids in chunked(ids, batch_size):
+            pending = list(batch_ids)
+            attempt = 0
+            while pending and attempt < max_attempts:
+                failed = []
+
+                def _cb(request_id, response, exception, _failed=failed):
+                    if exception is not None:
+                        _failed.append(request_id)
+
+                batch = self.service.new_batch_http_request()
+                for message_id in pending:
+                    batch.add(
+                        self.service.users()
+                        .messages()
+                        .trash(userId=self.userID, id=message_id),
+                        request_id=message_id,
+                        callback=_cb,
+                    )
+                try:
+                    batch.execute()
+                    failed_set = set(failed)
+                except Exception as e:
+                    print(e)
+                    failed_set = set(pending)  # whole batch did not go through
+
+                for message_id in pending:
+                    if message_id not in failed_set:
+                        trashed_ids.add(message_id)
+                reporter.emit(STAGE_APPLY, len(trashed_ids), total)
+
+                pending = list(failed_set)
+                attempt += 1
+                if pending:
+                    time.sleep(min(0.5 * (2 ** attempt), 8.0))  # backoff on 429s
+
+        return len(trashed_ids)
 
     @_check_valid_interface
     def getMessageById(self, message_id):
