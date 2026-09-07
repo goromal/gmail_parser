@@ -193,6 +193,318 @@ class GMailCorpus(object):
         )
 
     @_check_valid_interface
+    def getLabels(self):
+        """Return the account's full label objects (id, name, type, ...).
+
+        Unlike :meth:`getLabelMap` (name -> id only) this keeps every field, so
+        callers can show label visibility/type or find the id to patch/delete.
+        """
+        response = callAPI(self.service.users().labels().list(userId=self.userID))
+        return response.get("labels", [])
+
+    @_check_valid_interface
+    def _resolve_label_ids(self, labels):
+        """Map a mix of label NAMES and ids to ids (names via the label map,
+        unknown values - e.g. system labels like ``UNREAD`` - pass through)."""
+        if not labels:
+            return []
+        name_to_id = self.getLabelMap()
+        return [name_to_id.get(label, label) for label in labels]
+
+    @_check_valid_interface
+    def searchMessageIds(self, query, limit=None):
+        """Return ids of messages matching a Gmail search ``query`` (the `q`
+        operator: ``from:``, ``subject:``, ``is:unread``, ``label:``, free text
+        that searches bodies, etc.).
+
+        Pages through ``messages().list`` collecting only ids - no per-message
+        fetch - so counting or selecting by sender/subject/content/label is
+        fast. ``limit=None`` returns every match.
+        """
+        ids = []
+        page_token = None
+        while True:
+            page_size = 500
+            if limit is not None:
+                remaining = limit - len(ids)
+                if remaining <= 0:
+                    break
+                page_size = min(500, remaining)
+            list_response = callAPI(
+                self.service.users()
+                .messages()
+                .list(
+                    userId=self.userID,
+                    q=query,
+                    maxResults=page_size,
+                    pageToken=page_token,
+                )
+            )
+            for message in list_response.get("messages", []):
+                ids.append(message["id"])
+            page_token = list_response.get("nextPageToken")
+            if not page_token:
+                break
+        return ids
+
+    @_check_valid_interface
+    def countMessages(self, query):
+        """Exact count of messages matching ``query`` (ids only, no bodies)."""
+        return len(self.searchMessageIds(query))
+
+    @_check_valid_interface
+    def getMetadata(self, ids, reporter=None):
+        """Fetch header-only metadata for ``ids`` in batches of 100.
+
+        Uses ``get(format='metadata', metadataHeaders=['From','Subject'])`` so
+        no bodies (or threads) are downloaded. Returns the dicts produced by
+        :func:`gmail_parser.search.parse_metadata_message`.
+        """
+        from gmail_parser.search import parse_metadata_message, chunked
+        from gmail_parser.progress import ProgressReporter, STAGE_DOWNLOAD
+
+        reporter = reporter or ProgressReporter(None)
+        metas = []
+        total = len(ids)
+        done = 0
+        for batch_ids in chunked(list(ids), 100):
+            results = {}
+
+            def _cb(request_id, response, exception, _results=results):
+                if exception is None and response is not None:
+                    _results[request_id] = response
+
+            batch = self.service.new_batch_http_request()
+            for message_id in batch_ids:
+                batch.add(
+                    self.service.users()
+                    .messages()
+                    .get(
+                        userId=self.userID,
+                        id=message_id,
+                        format="metadata",
+                        metadataHeaders=["From", "Subject"],
+                    ),
+                    request_id=message_id,
+                    callback=_cb,
+                )
+            try:
+                batch.execute()
+            except Exception as e:
+                print(e)
+            for message_id in batch_ids:
+                if message_id in results:
+                    metas.append(parse_metadata_message(results[message_id]))
+                done += 1
+                reporter.emit(STAGE_DOWNLOAD, done, total)
+        return metas
+
+    @_check_valid_interface
+    def senderStats(self, query=None, limit=None, reporter=None):
+        """Sender counts for messages matching ``query`` (default: all mail).
+
+        ``senderStats("is:unread")`` answers "which senders account for the most
+        unread mail?" cheaply - it fetches only metadata, never bodies. Returns
+        the list from :func:`gmail_parser.search.aggregate_senders`.
+        """
+        from gmail_parser.search import aggregate_senders
+
+        ids = self.searchMessageIds(query or "", limit=limit)
+        metas = self.getMetadata(ids, reporter=reporter)
+        return aggregate_senders(metas)
+
+    @_check_valid_interface
+    def bulkModifyLabels(self, ids, add_labels=(), remove_labels=()):
+        """Add/remove labels on many messages via ``batchModify`` (<=1000 ids
+        per call). ``add_labels``/``remove_labels`` accept label NAMES or ids.
+        Returns the number of ids acted on.
+        """
+        from gmail_parser.search import chunked
+
+        add_ids = self._resolve_label_ids(add_labels)
+        remove_ids = self._resolve_label_ids(remove_labels)
+        ids = list(ids)
+        for chunk in chunked(ids, 1000):
+            body = {
+                "ids": chunk,
+                "addLabelIds": add_ids,
+                "removeLabelIds": remove_ids,
+            }
+            callAPI(
+                self.service.users()
+                .messages()
+                .batchModify(userId=self.userID, body=body)
+            )
+        return len(ids)
+
+    @_check_valid_interface
+    def bulkMarkRead(self, ids):
+        """Mark many messages read (remove the UNREAD label)."""
+        return self.bulkModifyLabels(ids, remove_labels=["UNREAD"])
+
+    @_check_valid_interface
+    def bulkMarkUnread(self, ids):
+        """Mark many messages unread (add the UNREAD label)."""
+        return self.bulkModifyLabels(ids, add_labels=["UNREAD"])
+
+    @_check_valid_interface
+    def bulkTrash(self, ids, reporter=None, batch_size=50, max_attempts=6):
+        """Move many messages to Trash (recoverable), returning the number
+        ACTUALLY trashed.
+
+        Trashing is deliberately used instead of ``batchDelete`` (which is
+        permanent and unrecoverable): a mistaken bulk action can still be undone
+        from Gmail's Trash for 30 days.
+
+        Gmail rate-limits bursts of per-message ``trash`` calls (HTTP 429). Each
+        batch is sent with a per-item callback so failures are seen (not silently
+        dropped), and any failed ids are retried with exponential backoff. Trash
+        is idempotent, so retrying an id that in fact succeeded is harmless;
+        success is tracked in a set so such an id is never counted twice. A
+        return value < ``len(ids)`` means some ids could not be trashed even
+        after ``max_attempts`` - the caller should treat the difference as a
+        real failure, not assume completion.
+        """
+        import time
+
+        from gmail_parser.search import chunked
+        from gmail_parser.progress import ProgressReporter, STAGE_APPLY
+
+        reporter = reporter or ProgressReporter(None)
+        ids = list(ids)
+        total = len(ids)
+        trashed_ids = set()
+
+        for batch_ids in chunked(ids, batch_size):
+            pending = list(batch_ids)
+            attempt = 0
+            while pending and attempt < max_attempts:
+                failed = []
+
+                def _cb(request_id, response, exception, _failed=failed):
+                    if exception is not None:
+                        _failed.append(request_id)
+
+                batch = self.service.new_batch_http_request()
+                for message_id in pending:
+                    batch.add(
+                        self.service.users()
+                        .messages()
+                        .trash(userId=self.userID, id=message_id),
+                        request_id=message_id,
+                        callback=_cb,
+                    )
+                try:
+                    batch.execute()
+                    failed_set = set(failed)
+                except Exception as e:
+                    print(e)
+                    failed_set = set(pending)  # whole batch did not go through
+
+                for message_id in pending:
+                    if message_id not in failed_set:
+                        trashed_ids.add(message_id)
+                reporter.emit(STAGE_APPLY, len(trashed_ids), total)
+
+                pending = list(failed_set)
+                attempt += 1
+                if pending:
+                    time.sleep(min(0.5 * (2 ** attempt), 8.0))  # backoff on 429s
+
+        return len(trashed_ids)
+
+    @_check_valid_interface
+    def getMessageById(self, message_id):
+        """Fetch one full message (body included) as a ``GMailMessage``, or
+        ``None`` if it cannot be retrieved. This is the slow, single-message
+        path used once a metadata triage has picked a message worth reading."""
+        full = callAPI(
+            self.service.users().messages().get(userId=self.userID, id=message_id)
+        )
+        if not full:
+            return None
+        return GMailMessage([full], self)
+
+    @_check_valid_interface
+    def createLabel(
+        self,
+        name,
+        label_list_visibility="labelShow",
+        message_list_visibility="show",
+    ):
+        """Create a user label; returns the created label object."""
+        body = {
+            "name": name,
+            "labelListVisibility": label_list_visibility,
+            "messageListVisibility": message_list_visibility,
+        }
+        return callAPI(
+            self.service.users().labels().create(userId=self.userID, body=body)
+        )
+
+    @_check_valid_interface
+    def updateLabel(
+        self,
+        label_id,
+        name=None,
+        label_list_visibility=None,
+        message_list_visibility=None,
+    ):
+        """Patch a label's name/visibility; returns the updated label object."""
+        body = {"id": label_id}
+        if name is not None:
+            body["name"] = name
+        if label_list_visibility is not None:
+            body["labelListVisibility"] = label_list_visibility
+        if message_list_visibility is not None:
+            body["messageListVisibility"] = message_list_visibility
+        return callAPI(
+            self.service.users()
+            .labels()
+            .patch(userId=self.userID, id=label_id, body=body)
+        )
+
+    @_check_valid_interface
+    def deleteLabel(self, label_id):
+        """Delete a user label (messages keep, just lose the label)."""
+        callAPI(
+            self.service.users().labels().delete(userId=self.userID, id=label_id)
+        )
+        return {"deleted": label_id}
+
+    @_check_valid_interface
+    def listFilters(self):
+        """Return the account's mail filters (criteria + action objects)."""
+        response = callAPI(
+            self.service.users().settings().filters().list(userId=self.userID)
+        )
+        return response.get("filter", [])
+
+    @_check_valid_interface
+    def createFilter(self, criteria, action):
+        """Create a filter from a ``criteria`` dict (from/to/subject/query/...)
+        and an ``action`` dict (addLabelIds/removeLabelIds/forward). Returns the
+        created filter object."""
+        body = {"criteria": criteria, "action": action}
+        return callAPI(
+            self.service.users()
+            .settings()
+            .filters()
+            .create(userId=self.userID, body=body)
+        )
+
+    @_check_valid_interface
+    def deleteFilter(self, filter_id):
+        """Delete a filter by id."""
+        callAPI(
+            self.service.users()
+            .settings()
+            .filters()
+            .delete(userId=self.userID, id=filter_id)
+        )
+        return {"deleted": filter_id}
+
+    @_check_valid_interface
     def process(self, rules, archive_root, num_messages=1000, reporter=None, cancel=None):
         """Download the latest ``num_messages`` messages mailbox-wide, then
         apply the label -> action rules to them. Returns the summary dict."""
