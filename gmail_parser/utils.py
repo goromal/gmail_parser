@@ -28,6 +28,7 @@ class GMailMessage(object):
         self.is_trash = False
         self.content = ""
         self.html_content = ""
+        self.attachment_parts = []
         self.id = json_object["id"]
         for payload_header in json_object["payload"]["headers"]:
             if payload_header["name"] == "Subject":
@@ -57,46 +58,73 @@ class GMailMessage(object):
                     json_object["payload"]["body"]["data"]
                 )
             elif "parts" in json_object["payload"]:
-                for part in json_object["payload"]["parts"]:
-                    if (
-                        part["mimeType"] == "text/plain"
-                        and "body" in part
-                        and "data" in part["body"]
-                    ):
-                        self.content += self._gmail_decode_string(part["body"]["data"])
-                    elif (
-                        part["mimeType"] == "text/html"
-                        and "body" in part
-                        and "data" in part["body"]
-                    ):
-                        self.html_content += self._gmail_decode_string(
-                            part["body"]["data"]
-                        )
-                    elif (
-                        part["mimeType"] == "multipart/alternative" and "parts" in part
-                    ):
-                        for partpart in part["parts"]:
-                            if (
-                                partpart["mimeType"] == "text/plain"
-                                and "body" in partpart
-                                and "data" in partpart["body"]
-                            ):
-                                self.content += self._gmail_decode_string(
-                                    partpart["body"]["data"]
-                                )
-                            elif (
-                                partpart["mimeType"] == "text/html"
-                                and "body" in partpart
-                                and "data" in partpart["body"]
-                            ):
-                                self.html_content += self._gmail_decode_string(
-                                    partpart["body"]["data"]
-                                )
+                self._walk_parts(json_object["id"], json_object["payload"]["parts"])
         self.content = self.content.replace("\r", "")
         self.is_html = "<html" in self.content
         internal_secs = float(json_object["internalDate"]) / 1000.0
         self.date = datetime.fromtimestamp(internal_secs)
         self.json = json_objects
+
+    def _walk_parts(self, message_id, parts):
+        """Collect body text/HTML and attachment parts from a MIME tree of any
+        depth (e.g. mixed -> related -> alternative -> text/html)."""
+        for part in parts:
+            mime = part.get("mimeType", "")
+            body = part.get("body", {})
+            if part.get("filename") or "attachmentId" in body:
+                self.attachment_parts.append((message_id, part))
+            elif "parts" in part:
+                self._walk_parts(message_id, part["parts"])
+            elif mime == "text/plain" and "data" in body:
+                self.content += self._gmail_decode_string(body["data"])
+            elif mime == "text/html" and "data" in body:
+                self.html_content += self._gmail_decode_string(body["data"])
+
+    def _gmail_decode_bytes(self, string):
+        return base64.urlsafe_b64decode(string + "=" * (-len(string) % 4))
+
+    def getAttachments(self):
+        """Download every attachment part (including inline images).
+
+        Returns a list of dicts with ``filename``, ``mime_type``,
+        ``content_id`` (without angle brackets, or None), and ``data`` (bytes).
+        Raises RuntimeError if any attachment cannot be fetched, so callers
+        never discard a message whose attachments were not saved.
+        """
+        attachments = []
+        for message_id, part in self.attachment_parts:
+            body = part.get("body", {})
+            data = body.get("data")
+            if data is None and "attachmentId" in body:
+                response = callAPI(
+                    self.corpus.service.users()
+                    .messages()
+                    .attachments()
+                    .get(
+                        userId=self.corpus.userID,
+                        messageId=message_id,
+                        id=body["attachmentId"],
+                    )
+                )
+                data = response.get("data")
+            if data is None:
+                raise RuntimeError(
+                    "could not download attachment %r of message %s"
+                    % (part.get("filename", ""), self.id)
+                )
+            content_id = None
+            for header in part.get("headers", []):
+                if header.get("name", "").lower() == "content-id":
+                    content_id = header.get("value", "").strip().strip("<>")
+            attachments.append(
+                {
+                    "filename": part.get("filename", ""),
+                    "mime_type": part.get("mimeType", "application/octet-stream"),
+                    "content_id": content_id,
+                    "data": self._gmail_decode_bytes(data),
+                }
+            )
+        return attachments
 
     def _gmail_decode_string(self, string):
         return base64.b64decode(string.replace("-", "+").replace("_", "/")).decode(

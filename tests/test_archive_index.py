@@ -51,3 +51,24 @@ def test_delete_rejects_path_escape(tmp_path):
     import pytest
     with pytest.raises(ValueError):
         delete_archive(str(tmp_path), "..", "../../etc/passwd")
+
+
+def test_delete_removes_attachment_directory(tmp_path):
+    _write(str(tmp_path), "L", "m1")
+    attachments = tmp_path / "L" / "m1"
+    attachments.mkdir()
+    (attachments / "a.pdf").write_bytes(b"x")
+    _write(str(tmp_path), "L", "m2")
+    delete_archive(str(tmp_path), "L", "m1")
+    assert not attachments.exists()
+    assert (tmp_path / "L" / "m2.html").exists()
+
+
+def test_delete_rejects_empty_id(tmp_path):
+    _write(str(tmp_path), "L", "m1")
+    try:
+        delete_archive(str(tmp_path), "L", "")
+    except ValueError:
+        assert (tmp_path / "L" / "m1.html").exists()
+        return
+    raise AssertionError("expected ValueError")

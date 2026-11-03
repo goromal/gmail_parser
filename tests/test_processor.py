@@ -10,13 +10,15 @@ from gmail_parser.processor import process_messages
 
 class FakeMessage:
     def __init__(self, id, labels, subject="Subj", sender="a@b.co",
-                 date="2026-07-24T09:30:00", body="<p>body</p>"):
+                 date="2026-07-24T09:30:00", body="<p>body</p>",
+                 attachments=()):
         self.id = id
         self.labels = list(labels)
         self.subject = subject
         self.sender = sender
         self.date = date
         self.body = body
+        self.attachments = attachments if isinstance(attachments, Exception) else list(attachments)
         self.trashed = False
         self.read = False
 
@@ -37,6 +39,11 @@ class FakeMessage:
 
     def getArchiveBody(self):
         return self.body
+
+    def getAttachments(self):
+        if isinstance(self.attachments, Exception):
+            raise self.attachments
+        return self.attachments
 
     def markAsRead(self):
         self.read = True
@@ -143,3 +150,46 @@ def test_summary_counts(tmp_path):
     assert summary["A"] == 1
     assert summary["skipped"] == 1
     assert summary["cancelled"] is False
+
+
+def _att(filename, data=b"%PDF-1.4", mime="application/pdf", cid=None):
+    return {"filename": filename, "mime_type": mime, "content_id": cid, "data": data}
+
+
+def test_archive_saves_attachments_and_links_them(tmp_path):
+    msg = FakeMessage("m1", ["Label_3"], attachments=[_att("report.pdf")])
+    process_messages([msg], [Rule("Receipts", Action.ARCHIVE)], NAME_TO_ID, str(tmp_path))
+    saved = tmp_path / "Receipts" / "m1" / "report.pdf"
+    assert saved.read_bytes() == b"%PDF-1.4"
+    html = (tmp_path / "Receipts" / "m1.html").read_text()
+    assert 'href="m1/report.pdf"' in html
+    assert msg.trashed
+
+
+def test_archive_embeds_cid_images_instead_of_saving_them(tmp_path):
+    msg = FakeMessage("m1", ["Label_3"], body='<img src="cid:logo@x">',
+                      attachments=[_att("logo.png", b"PNG", "image/png", "logo@x")])
+    process_messages([msg], [Rule("Receipts", Action.ARCHIVE)], NAME_TO_ID, str(tmp_path))
+    html = (tmp_path / "Receipts" / "m1.html").read_text()
+    assert "data:image/png;base64,UE5H" in html
+    assert "cid:" not in html
+    assert not (tmp_path / "Receipts" / "m1").exists()
+
+
+def test_archive_attachment_names_are_sanitized_and_deduplicated(tmp_path):
+    msg = FakeMessage("m1", ["Label_3"], attachments=[
+        _att("../../evil.pdf"), _att("evil.pdf"), _att("")])
+    process_messages([msg], [Rule("Receipts", Action.ARCHIVE)], NAME_TO_ID, str(tmp_path))
+    names = sorted(os.listdir(tmp_path / "Receipts" / "m1"))
+    assert names == ["attachment", "evil (2).pdf", "evil.pdf"]
+    assert not (tmp_path / "evil.pdf").exists()
+
+
+def test_archive_failure_leaves_message_untouched(tmp_path):
+    msg = FakeMessage("m1", ["Label_3"], attachments=RuntimeError("download failed"))
+    out = io.StringIO()
+    summary = process_messages([msg], [Rule("Receipts", Action.ARCHIVE)], NAME_TO_ID,
+                               str(tmp_path), reporter=ProgressReporter(out))
+    assert not msg.trashed
+    assert summary["failed"] == 1 and summary["A"] == 0
+    assert "download failed" in json.loads(out.getvalue().splitlines()[-1])["error"]
