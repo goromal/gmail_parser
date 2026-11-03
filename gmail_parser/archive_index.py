@@ -1,11 +1,12 @@
 """On-disk index over archived email HTML files.
 
-Archives live at ``<root>/<label>/<id>.html``. The index scans that tree and
+Archives live at ``<root>/<label>/<id>.html`` (attachments in ``<id>/``). The index scans that tree and
 reads each file's ``<meta>`` tags (cheap - only the head is needed) to build the
 list the Mail UI renders, and provides safe deletion.
 """
 
 import os
+import shutil
 
 from gmail_parser.archive import parse_archive_meta
 
@@ -50,9 +51,13 @@ def _safe_join(root, label, id):
 
 
 def delete_archive(root, label, id):
-    """Permanently delete one archived email. Missing file is a no-op."""
+    """Permanently delete one archived email and its attachments directory.
+    Missing files are a no-op."""
+    if not id or id in (".", "..") or "/" in id or os.sep in id:
+        raise ValueError("invalid archive id")
     path = _safe_join(root, label, id)
     try:
         os.remove(path)
     except FileNotFoundError:
         pass
+    shutil.rmtree(path[: -len(".html")], ignore_errors=True)
